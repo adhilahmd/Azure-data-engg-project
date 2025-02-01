@@ -1,0 +1,265 @@
+CREATE TABLE SalesData_Transform (
+    OrderID VARCHAR(20),
+    CustomerName VARCHAR(255),
+    PhoneNumber VARCHAR(50),
+    Location VARCHAR(255),
+    Country VARCHAR(255),
+    StoreCode VARCHAR(50),
+    Product VARCHAR(255),
+    Quantity INT,
+    Price DECIMAL(18, 2),
+    Date DATE,
+    CreditCardNumber VARCHAR(50),
+    ExpiryDate VARCHAR(10))
+
+
+INSERT INTO SalesData_Transform (OrderID, CustomerName, PhoneNumber, Location, Country, StoreCode, Product, Quantity, Price, Date, CreditCardNumber, ExpiryDate)
+    SELECT 
+        OrderID,
+        CustomerName,
+        PhoneNumber,
+        Location,
+        Country,
+        StoreCode,
+        Product,
+        CAST(Quantity AS INT) AS Quantity, 
+        Price,
+        Date,
+        CreditCardNumber,
+        ExpiryDate
+    FROM SalesData_Source;
+
+alter table salesdata_transform
+add total_sales as (quantity*Price)
+
+update salesdata_transform
+set PhoneNumber=CONCAT(left(phonenumber,2),'xxx-xxx-',right(phonenumber,4))
+
+
+update salesdata_transform
+set CreditCardNumber=CONCAT(left(creditcardnumber,4),'XXXX-XXXX',right(creditcardnumber,4))
+
+create table total_sales_by_date(date date,total_sales decimal(20,3))
+
+
+insert into total_sales_by_date(date,total_sales)
+select date,sum(quantity*price)as total_sales
+from salesdata_transform
+group BY date
+  
+
+
+create table sales_by_product(Product VARCHAR(255) ,total_sales decimal(20,3))
+
+insert into sales_by_product(product,total_sales)
+SELECT product,SUM(Quantity * Price) AS total_sales
+FROM SalesData_Transform
+GROUP BY product
+ORDER BY Total_Sales
+
+
+create table sales_by_location(Location VARCHAR(255) ,total_sales decimal(20,3))
+
+
+insert into sales_by_location(location,total_sales)
+SELECT location,SUM(Quantity * Price) AS total_sales
+FROM SalesData_Transform
+GROUP BY location
+ORDER BY Total_Sales 
+
+view========================
+
+create view sales_trend as 
+SELECT 
+    YEAR(date) AS Year,
+    MONTH(date) AS Month,
+    location,
+    corrected_country as country,StoreCode,
+    product,
+    SUM(quantity) AS Totalquantity,
+    SUM(total_sales) AS TotalSales
+FROM 
+    SalesData_Transform
+GROUP BY 
+    YEAR(date),
+    MONTH(date),
+    location,StoreCode,
+    corrected_country,
+    product;
+
+create view total_ordersale as
+SELECT 
+    YEAR(date) AS Year,
+    MONTH(date) AS Month,
+    location,
+    corrected_country as country,StoreCode,
+    orderid,
+    sum(total_sales) over (partition by orderid) as order_cost
+FROM 
+    SalesData_Transform
+
+
+CREATE VIEW vwTotal_Sales_By_Date AS
+SELECT 
+    Date,
+    SUM(Quantity * Price) AS Total_Sales
+FROM SalesData_Transform
+GROUP BY Date;
+
+create VIEW total_sales_by_year as
+SELECT 
+    year(Date) as year,
+    SUM(Quantity * Price) AS Total_Sales
+FROM SalesData_Transform
+GROUP BY year(Date);
+
+
+create view average_order_value as
+select customername,avg(total_sales) as average_order_value from salesdata_transform
+group by customername
+
+
+create VIEW vwsales_by_product as
+SELECT Product,SUM(Quantity * Price) AS total_sales
+FROM SalesData_Transform
+GROUP BY Product
+
+create VIEW vwsales_by_location as
+SELECT Location,SUM(Quantity * Price) AS total_sales
+FROM SalesData_Transform
+GROUP BY Location
+
+
+CREATE VIEW SalesByProductAndLocation AS
+SELECT 
+    Product,
+    Location,
+    SUM(Quantity * Price) AS Total_Sales
+FROM 
+    SalesData_Transform
+GROUP BY 
+    Product,
+    Location;
+
+
+CREATE VIEW SalesByProductAndYear AS
+SELECT 
+    Product,
+    YEAR(Date) AS Year,
+    SUM(Quantity * Price) AS Total_Sales
+FROM 
+    SalesData_Transform
+GROUP BY 
+    Product,
+    YEAR(Date);
+
+create VIEW sales_by_year_and_loc as
+SELECT 
+    YEAR(Date) AS Year,
+    location,
+    SUM(Quantity * Price) AS Total_Sales
+FROM 
+    SalesData_Transform
+GROUP BY 
+    location,
+    YEAR(Date);
+
+create VIEW customer_purchase_amount as
+select customername,sum(total_sales)as purchased_amount from SalesData_Transform
+group by CustomerName
+
+
+==========================================================================
+
+
+
+    STORED PROCEDURE===================
+
+CREATE PROCEDURE moveto_SalesData_Transform
+AS
+BEGIN
+    -- Insert new records from salesdata_source into SalesData_Transform
+    INSERT INTO SalesData_Transform (
+        orderId,
+        customername,
+        phonenumber,
+        location,
+        country,
+        storecode,
+        product,
+        quantity,
+        price,
+        date,
+        creditcardnumber,
+        expirydate
+    
+    )
+    SELECT 
+        orderId,
+        customername,
+        CONCAT(LEFT(phonenumber, 2), 'xxx-xxx-', RIGHT(phonenumber, 4)) AS phonenumber,
+        location,
+        country,
+        storecode,
+        product,
+        quantity,
+        price,
+        date,
+        CONCAT(LEFT(creditcardnumber, 4), 'XXXX-XXXX-', RIGHT(creditcardnumber, 4)) AS creditcardnumber,
+        expirydate
+        
+    FROM 
+        salesdata_source
+    WHERE 
+        NOT EXISTS (
+            SELECT 1 
+            FROM SalesData_Transform 
+            WHERE orderId = salesdata_source.orderId 
+            AND product = salesdata_source.product
+        );
+
+    -- Update existing records in SalesData_Transform based on changes in salesdata_source
+    UPDATE t
+    SET 
+        t.customername = s.customername,
+        t.location = s.location,
+        t.phonenumber = CONCAT(LEFT(s.phonenumber, 2), 'xxx-xxx-', RIGHT(s.phonenumber, 4)),
+        t.country = s.country,
+        t.storecode = s.storecode,
+        t.quantity = s.quantity,
+        t.price = s.price,
+        t.date = s.date,
+        t.creditcardnumber = CONCAT(LEFT(s.creditcardnumber, 4), 'XXXX-XXXX-', RIGHT(s.creditcardnumber, 4)),
+        t.expirydate = s.expirydate
+        
+    FROM 
+        SalesData_Transform t
+    INNER JOIN 
+        salesdata_source s 
+    ON 
+        t.orderId = s.orderId 
+        AND t.product = s.product
+    WHERE 
+        t.location <> s.location 
+        OR t.price <> s.price 
+        OR t.quantity <> s.quantity;
+
+    UPDATE salesdata_transform
+    set total_sales as quantity*price
+    END;
+    UPDATE SalesData_Transform
+    SET corrected_country = CASE
+        WHEN location = 'New York' THEN 'USA'
+        WHEN location = 'Chicago' THEN 'USA'
+        WHEN location = 'Houston' THEN 'USA'
+        WHEN location = 'Los Angeles' THEN 'USA'
+        WHEN location = 'Mumbai' THEN 'India'
+        ELSE 'Unknown'
+    UPDATE salesdata_transform
+    set total_sales as quantity*price
+    
+    END;
+END;
+
+
+   

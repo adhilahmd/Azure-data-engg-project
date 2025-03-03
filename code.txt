@@ -255,8 +255,7 @@ BEGIN
         WHEN location = 'Los Angeles' THEN 'USA'
         WHEN location = 'Mumbai' THEN 'India'
         ELSE 'Unknown'
-    UPDATE salesdata_transform
-    set total_sales as quantity*price
+  
     
     END;
 END;
